@@ -1,11 +1,6 @@
-#! /bin/sh
-#|
-exec  mzscheme --require "$0" --main -- ${1+"$@"} 
-|#
 #lang scheme
-
 (require mzlib/pregexp)
-(provide clean process-stream process-file main)
+(provide clean process-stream process-file)
 
 (define-syntax with-input-file
   (syntax-rules ()
@@ -65,19 +60,22 @@ exec  mzscheme --require "$0" --main -- ${1+"$@"}
       (subbytes str 1))
     
     (define (multibyte n)
-      (define str2 (bytes->string/utf-8 str #f  0 n))
-      (if str2
-          (let ([ch (char->integer (string-ref str2 0))])
-            (P (subbytes str n)
-               (bytes-append acc (entity ch))))
-          (P (rest str)
-             (bytes-append acc (entity (bytes-ref str 0))))))
-    
+      (with-handlers
+       ([exn:fail:contract?
+         (lambda (exn)
+           ;; if it fails be produce a valid multibyte
+           ;; character we make an entity and get on with our lives
+           (P (rest str)
+              (bytes-append acc (entity (bytes-ref str 0)))))])
+       
+       (let* ([utf-str (bytes->string/utf-8 str #f 0 n)]
+              [ch (char->integer (string-ref utf-str 0))])
+         (P (subbytes str n)
+            (bytes-append acc (entity ch))))))
     
     (if (= 0 (bytes-length str))
         acc
         (let ([current (bytes-ref str 0)])
-                
           (cond [;; control characters can be omitted
                  ;; as can the Byte Order Mark
                  (or (<= current #x19)
@@ -107,14 +105,12 @@ exec  mzscheme --require "$0" --main -- ${1+"$@"}
     (write-bytes (clean line) out)
     (newline out)))
 
-(define (process-file file)
+(define (process-file filename suffix)
   (define temp (open-output-bytes))
-  (display file)
+  (define in-file  (string->path filename))
+  (define out-file (string->path (string-append filename
+                                                suffix)))
+  (display filename)
   (newline)
-  (with-input-file  file (process-stream file temp)) 
-  (with-output-file file (write-bytes (get-output-bytes temp) file)))
-
-(define (main . args)
-  (cond [(null? args) (process-stream (current-input-port)
-                                      (current-output-port))]
-        [else (for-each (lambda (str) (process-file (string->path str))) args)]))
+  (with-input-file  in-file (process-stream in-file temp)) 
+  (with-output-file out-file (write-bytes (get-output-bytes temp) out-file)))
