@@ -63,7 +63,7 @@
       (with-handlers
        ([exn:fail:contract?
          (lambda (exn)
-           ;; if it fails be produce a valid multibyte
+           ;; if it fails to produce a valid multibyte
            ;; character we make an entity and get on with our lives
            (P (rest str)
               (bytes-append acc (entity (bytes-ref str 0)))))])
