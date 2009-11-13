@@ -1,3 +1,4 @@
+#! /usr/bin/env mzscheme
 #lang scheme
 (require "clean.ss")
 
