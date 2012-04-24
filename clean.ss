@@ -1,5 +1,4 @@
 #lang scheme
-(require mzlib/pregexp)
 (provide clean process-stream process-file)
 
 (define-syntax with-input-file
@@ -16,7 +15,7 @@
 ;; entity creates an XML unicode entity
 ;; integer -> bytes
 (define (entity n)
-  (string->bytes/utf-8 (format "&#~A;" n)))
+  (string->bytes/latin-1 (format "&#~A;" n)))
 
 (define (fix n)
   ;; windows-1252 characters that are illegal in SGML
@@ -52,65 +51,73 @@
     [(159)  (entity 376) ] ; Latin Capital Letter Y With Diaeresis
     [else (entity n)]))    ; otherwise make an entity and hope for the best
 
+;; -> number?
+;; Read a single character and write a clean version
+;; returns the number of bytes consumed
+(define (clean)
+  (define ch (read-byte))
+  (unless (eof-object? ch)
+         (cond ;; print newlines and horizontal tabs
+               [(or (= ch #x09)
+                    (= ch #x0A)) (write-byte ch)]
+               
+               ;; other control characters can be omitted
+               ;; as can the Byte Order Mark
+               [(or (<= ch #x19)
+                    (<= #xFE ch #xFF))]
+               
+               ;; the BOM in utf-8 may be ef bb ff
+               [(and (= ch #xef)
+                     (let ([next (peek-bytes 2 0)]
+                           [bom (bytes #xbb #xbf)])
+                        (bytes=? next bom)))
+                (read-bytes 2)]
 
-;; bytes -> bytes
-(define (clean str)
-  (define (P str acc)
-    (define (rest str)
-      (subbytes str 1))
-    
-    (define (multibyte n)
-      (with-handlers
-       ([exn:fail:contract?
-         (lambda (exn)
-           ;; if it fails to produce a valid multibyte
-           ;; character we make an entity and get on with our lives
-           (P (rest str)
-              (bytes-append acc (entity (bytes-ref str 0)))))])
-       
-       (let* ([utf-str (bytes->string/utf-8 str #f 0 n)]
-              [ch (char->integer (string-ref utf-str 0))])
-         (P (subbytes str n)
-            (bytes-append acc (entity ch))))))
-    
-    (if (= 0 (bytes-length str))
-        acc
-        (let ([current (bytes-ref str 0)])
-          (cond [;; control characters can be omitted
-                 ;; as can the Byte Order Mark
-                 (or (<= current #x19)
-                     (<= #xFE current #xFF)) (P (rest str) acc)]
+               ;; ASCII characters are included as is
+               [(<= ch #x80) (write-byte ch)]
 
-                ;; ASCII characters are included as is
-                [(<= current #x80) (P (rest str) 
-                                      (bytes-append acc (bytes current)))]
-                
-                ;; these ranges indicate a multi-byte
-                ;; character and will be converted to
-                ;; XML entities -> &#xNNNN;
-                [(<= #xC2 current #xDF) (multibyte 2)]
-                [(<= #xE0 current #xEF) (multibyte 3)]
-                [(<= #xF0 current #xF4) (multibyte 4)]
+               ;; these ranges indicate a multi-byte
+               ;; character and will be converted to
+               ;; XML entities like &#xNNNN;
+               [(<= #xC2 ch #xDF)
+                (write-bytes (multibyte* ch (read-bytes 1)))]
+               
+               [(<= #xE0 ch #xEF)
+                (write-bytes (multibyte* ch (read-bytes 2)))]
+               
+               [(<= #xF0 ch #xF4)
+                (write-bytes (multibyte* ch (read-bytes 3)))]
 
-                ;; Anything else is illegal and will get passed
-                ;; through fix before being included
-                [else (P (rest str) 
-                         (bytes-append acc (fix current)))]))))
-  (P str #""))
+               ;; Remove Windows-1252 characters
+               [else
+                 (write-bytes (fix ch))])
 
+         ;; continue until eof
+         (clean)))
+
+
+(define (multibyte* head tail)
+  (multibyte (bytes-append (make-bytes 1 head) tail)))
+
+;; Return the xml-entity to show the utf-8 character represented by `bytes`
+(define (multibyte bytes)
+  (with-handlers ([exn? (lambda () (entity 65533))])
+    (let* ([str (bytes->string/utf-8 bytes)]
+           [char (string-ref str 0)]
+           [int (char->integer char)])
+      (entity int))))
+   
 (define (process-stream in out)
-  (do ([line (read-bytes-line in)
-             (read-bytes-line in)])
-      ((eof-object? line))
-    (write-bytes (clean line) out)
-    (newline out)))
+  (parameterize ([current-input-port in]
+                 [current-output-port out])
+     (clean)))
 
 (define (process-file filename suffix)
   (define temp (open-output-bytes))
   (define in-file  (string->path filename))
   (define out-file (string->path (string-append filename
                                                 suffix)))
-  (display filename)
-  (newline)
+  (printf "writing ~a to ~a..." in-file out-file)
   (with-input-file  in-file (process-stream in-file temp)) 
-  (with-output-file out-file (write-bytes (get-output-bytes temp) out-file)))
+  (with-output-file out-file (write-bytes (get-output-bytes temp) out-file))
+  (printf " DONE!~n"))
