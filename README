@@ -1,1 +1,29 @@
+Clean is a utility for making text suitable for inclusion in html, it does a few different things.
+
+- Drops control characters and byte order marks
+- Replaces Windows-1252 with (e.g. the "smartquotes" from MS Word) corresponding safe unicode characters
+- Replaces all non-ascii characters with numeric xml entities
+
+Usage
+---
+
+Calling `racket script.ss -h` will display the usage:
+
+    cleaner [ <option> ... ] [<filenames>] ...
+     where <option> is one of
+      -s <s>, --suffix <s> : append a suffix to output files
+      --help, -h : Show this help
+      -- : Do not treat any remaining argument as a switch (at this level)
+     Multiple single-letter switches can be combined after one `-'; for
+      example: `-h-' is the same as `-h --'
+
+When given a list of files, script.ss will append a suffix to the input file to
+decide the name out the output file, the default suffix is '.clean'.
+
+e.g. the clean version of foo.txt will be written to foo.txt.clean
+
+A suffix may be provided using the '-s' flag.
+
+If it is not given a list of files, cleaner reads from stdin and writes to stdout.
+
 Clean is provided under the MIT License as specified in LICENSE
